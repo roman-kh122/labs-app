@@ -23,6 +23,8 @@ services:
       DB_PASSWORD: yourpassword
       DB_NAME: labdb
       DB_PORT: 5432
+      JWT_SECRET: super_secret_jwt_key_change_me_in_production
+      OWM_API_KEY: cf446d4bb439602e7e472794e19dd458
     depends_on:
       - db
 
