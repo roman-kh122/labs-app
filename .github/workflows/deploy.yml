@@ -1,0 +1,103 @@
+name: Build and Deploy to GCP
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: europe-west1
+  REPO: lab-repo
+  BACKEND_IMAGE: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/lab-repo/backend
+  FRONTEND_IMAGE: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/lab-repo/frontend
+
+jobs:
+  build-and-deploy:
+    name: Build, Push, Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Завантажити код
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Авторизація в GCP
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 3. Налаштування gcloud CLI
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 4. Налаштування Docker для Artifact Registry
+      - name: Configure Docker for GCP
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # 5. Збірка та пуш backend
+      - name: Build and push backend
+        run: |
+          docker build \
+            -t ${{ env.BACKEND_IMAGE }}:${{ github.sha }} \
+            -t ${{ env.BACKEND_IMAGE }}:latest \
+            ./backend
+          docker push ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.BACKEND_IMAGE }}:latest
+
+      # 6. Деплой backend на Cloud Run (тільки при пуші в main)
+      - name: Deploy backend to Cloud Run
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          gcloud run deploy lab-backend \
+            --image=${{ env.BACKEND_IMAGE }}:${{ github.sha }} \
+            --platform=managed \
+            --region=${{ env.REGION }} \
+            --allow-unauthenticated \
+            --port=3001 \
+            --set-env-vars="DB_HOST=/cloudsql/${{ env.PROJECT_ID }}:${{ env.REGION }}:lab-db,DB_USER=postgres,DB_NAME=labdb,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_PORT=5432" \
+            --add-cloudsql-instances=${{ env.PROJECT_ID }}:${{ env.REGION }}:lab-db
+
+      # 7. Отримати URL задеплоєного backend
+      - name: Get backend URL
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: backend-url
+        run: |
+          BACKEND_URL=$(gcloud run services describe lab-backend \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
+
+      # 8. Збірка та пуш frontend
+      - name: Build and push frontend
+        run: |
+          docker build \
+            --build-arg VITE_API_URL=${{ steps.backend-url.outputs.url || 'http://localhost:3001' }}/api \
+            -t ${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
+            -t ${{ env.FRONTEND_IMAGE }}:latest \
+            ./frontend
+          docker push ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.FRONTEND_IMAGE }}:latest
+
+      # 9. Деплой frontend на Cloud Run (тільки при пуші в main)
+      - name: Deploy frontend to Cloud Run
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          gcloud run deploy lab-frontend \
+            --image=${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
+            --platform=managed \
+            --region=${{ env.REGION }} \
+            --allow-unauthenticated \
+            --port=8080
+
+      # 10. Вивести URL після деплою
+      - name: Show deployment URLs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "✅ Backend: ${{ steps.backend-url.outputs.url }}"
+          echo "✅ Frontend: $(gcloud run services describe lab-frontend --region=${{ env.REGION }} --format='value(status.url)')"
