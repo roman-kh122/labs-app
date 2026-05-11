@@ -294,7 +294,7 @@ exports.getHistory = async (req, res) => {
   }
 };
 
-// ЛР2: Get average pollution indicators per region
+// ЛР2: Get average pollution indicators per region (Last 7 days history)
 exports.getAverages = async (req, res) => {
   try {
     const result = await pool.query(`
@@ -313,7 +313,7 @@ exports.getAverages = async (req, res) => {
         COUNT(p.id) as measurements_count,
         MAX(p.recorded_at) as last_measured
       FROM regions r
-      LEFT JOIN pollution p ON r.id = p.region_id
+      LEFT JOIN pollution p ON r.id = p.region_id AND p.recorded_at >= NOW() - INTERVAL '7 days'
       GROUP BY r.id, r.name, r.latitude, r.longitude
       ORDER BY r.name
     `);
