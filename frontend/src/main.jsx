@@ -8,6 +8,7 @@ import App from './App.jsx';
 
 import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
+import '@mantine/charts/styles.css';
 import 'leaflet/dist/leaflet.css';
 import './index.css';
 

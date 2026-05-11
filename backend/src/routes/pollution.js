@@ -6,6 +6,8 @@ const authMiddleware = require('../middleware/auth');
 // Public routes
 router.get('/current', pollutionController.getCurrent);
 router.get('/search', pollutionController.searchCity);
+router.get('/history-coords', pollutionController.getHistoryByCoords);
+router.get('/forecast', pollutionController.getForecast);
 router.get('/history', pollutionController.getHistory);
 router.get('/averages', pollutionController.getAverages);
 router.get('/latest', pollutionController.getLatest);

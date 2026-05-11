@@ -6,3 +6,29 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Fix Leaflet z-index overlapping Mantine modals/overlays */
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom,
+.leaflet-control {
+  z-index: 1 !important;
+}
+
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+/* Make sure Mantine overlay and modal are above the map */
+.mantine-Modal-overlay,
+.mantine-Overlay-root {
+  z-index: 200 !important;
+}
+
+.mantine-Modal-inner {
+  z-index: 201 !important;
+}
+
+.mantine-Notifications-root {
+  z-index: 300 !important;
+}

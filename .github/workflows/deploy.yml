@@ -60,7 +60,7 @@ jobs:
             --region=${{ env.REGION }} \
             --allow-unauthenticated \
             --port=3001 \
-            --set-env-vars="DB_HOST=/cloudsql/${{ env.PROJECT_ID }}:${{ env.REGION }}:lab-db,DB_USER=postgres,DB_NAME=labdb,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_PORT=5432" \
+            --set-env-vars="DB_HOST=/cloudsql/${{ env.PROJECT_ID }}:${{ env.REGION }}:lab-db,DB_USER=postgres,DB_NAME=labdb,DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_PORT=5432,JWT_SECRET=${{ secrets.JWT_SECRET }},OWM_API_KEY=${{ secrets.OWM_API_KEY }}" \
             --add-cloudsql-instances=${{ env.PROJECT_ID }}:${{ env.REGION }}:lab-db
 
       # 7. Отримати URL задеплоєного backend

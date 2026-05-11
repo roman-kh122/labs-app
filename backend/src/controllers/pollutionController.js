@@ -61,6 +61,131 @@ exports.searchCity = async (req, res) => {
   }
 };
 
+// Get 7-day history for given lat/lon
+// Tries OWM history API first, falls back to DB (nearest region)
+exports.getHistoryByCoords = async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    if (!lat || !lon) {
+      return res.status(400).json({ error: 'Параметри lat та lon обов\'язкові' });
+    }
+
+    // First try OWM history API
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - 7 * 24 * 60 * 60;
+    const url = `${OWM_BASE}/history?lat=${lat}&lon=${lon}&start=${start}&end=${end}&appid=${OWM_API_KEY}`;
+
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        const items = data.list || [];
+        if (items.length > 0) {
+          const aggregated = [];
+          const step = 4;
+          for (let i = 0; i < items.length; i += step) {
+            const chunk = items.slice(i, i + step);
+            const avg = (arr, fn) => arr.reduce((s, x) => s + fn(x), 0) / arr.length;
+            aggregated.push({
+              dt: chunk[0].dt,
+              aqi: Math.round(avg(chunk, x => x.main.aqi)),
+              pm2_5: parseFloat(avg(chunk, x => x.components.pm2_5).toFixed(2)),
+              pm10: parseFloat(avg(chunk, x => x.components.pm10).toFixed(2)),
+              no2: parseFloat(avg(chunk, x => x.components.no2).toFixed(2)),
+              o3: parseFloat(avg(chunk, x => x.components.o3).toFixed(2)),
+              co: parseFloat(avg(chunk, x => x.components.co).toFixed(2)),
+            });
+          }
+          return res.json({ source: 'owm', data: aggregated });
+        }
+      }
+    } catch (owmErr) {
+      console.log('OWM history not available, falling back to DB:', owmErr.message);
+    }
+
+    // Fallback: find nearest region in DB and return its history
+    const dbResult = await pool.query(`
+      SELECT p.aqi, p.pm2_5, p.pm10, p.no2, p.o3, p.co,
+             EXTRACT(EPOCH FROM p.recorded_at)::int as dt,
+             r.name as region_name
+      FROM pollution p
+      JOIN regions r ON p.region_id = r.id
+      WHERE p.recorded_at > NOW() - INTERVAL '7 days'
+      ORDER BY (r.latitude - $1)^2 + (r.longitude - $2)^2 ASC,
+               p.recorded_at ASC
+      LIMIT 200
+    `, [parseFloat(lat), parseFloat(lon)]);
+
+    const rows = dbResult.rows;
+    if (rows.length === 0) {
+      return res.json({ source: 'db', data: [], message: 'Немає історичних даних' });
+    }
+
+    const formatted = rows.map(r => ({
+      dt: r.dt,
+      aqi: r.aqi,
+      pm2_5: parseFloat(r.pm2_5),
+      pm10: parseFloat(r.pm10),
+      no2: parseFloat(r.no2),
+      o3: parseFloat(r.o3),
+      co: parseFloat(r.co),
+    }));
+
+    res.json({ source: 'db', regionName: rows[0].region_name, data: formatted });
+  } catch (err) {
+    console.error('Get history by coords error:', err);
+    res.status(500).json({ error: 'Помилка отримання історичних даних' });
+  }
+};
+
+// Get forecast from OWM for any lat/lon
+exports.getForecast = async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    if (!lat || !lon) {
+      return res.status(400).json({ error: 'Параметри lat та lon обов\'язкові' });
+    }
+
+    const url = `${OWM_BASE}/forecast?lat=${lat}&lon=${lon}&appid=${OWM_API_KEY}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error('OWM forecast error:', response.status, errBody);
+      return res.status(502).json({ error: `API повернув помилку: ${response.status}` });
+    }
+
+    const data = await response.json();
+    const items = data.list || [];
+
+    if (items.length === 0) {
+      return res.json([]);
+    }
+
+    // Aggregate hourly forecast into ~4h blocks
+    const aggregated = [];
+    const step = 4;
+    for (let i = 0; i < items.length; i += step) {
+      const chunk = items.slice(i, i + step);
+      const avg = (arr, fn) => arr.reduce((s, x) => s + fn(x), 0) / arr.length;
+      aggregated.push({
+        dt: chunk[0].dt,
+        aqi: Math.round(avg(chunk, x => x.main.aqi)),
+        pm2_5: parseFloat(avg(chunk, x => x.components.pm2_5).toFixed(2)),
+        pm10: parseFloat(avg(chunk, x => x.components.pm10).toFixed(2)),
+        no2: parseFloat(avg(chunk, x => x.components.no2).toFixed(2)),
+        o3: parseFloat(avg(chunk, x => x.components.o3).toFixed(2)),
+        co: parseFloat(avg(chunk, x => x.components.co).toFixed(2)),
+      });
+    }
+
+    res.json(aggregated);
+  } catch (err) {
+    console.error('Get forecast error:', err);
+    res.status(500).json({ error: 'Помилка отримання прогнозу' });
+  }
+};
+
 // Fetch and store pollution data for a specific region
 exports.fetchAndStore = async (req, res) => {
   try {
